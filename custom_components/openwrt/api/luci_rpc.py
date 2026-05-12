@@ -182,7 +182,9 @@ class LuciRpcClient(OpenWrtClient):
                         data = await response.json()
 
             if reauth_needed:
+                old_token = self._auth_token
                 self._auth_token = ""
+                await self._logout_session(old_token)
                 await self.connect()
                 return await self._rpc_call(
                     endpoint,
@@ -378,6 +380,10 @@ class LuciRpcClient(OpenWrtClient):
         """Authenticate with LuCI."""
         if self.session is None:
             raise LuciRpcError("Session not initialized")
+        if self._auth_token:
+            old_token = self._auth_token
+            self._auth_token = ""
+            await self._logout_session(old_token)
         session = self.session
         self._rpc_id += 1
 
@@ -453,9 +459,29 @@ class LuciRpcClient(OpenWrtClient):
         _LOGGER.debug("Authenticated with LuCI on %s", self.host)
         return True
 
+    async def _logout_session(self, token: str) -> None:
+        """Destroy an rpcd session by calling the LuCI auth logout endpoint."""
+        if not token or self.session is None:
+            return
+        try:
+            url = f"{self._base_url}/cgi-bin/luci/rpc/auth"
+            payload = {"id": self._rpc_id, "method": "logout", "params": [token]}
+            async with self.session.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                ssl=self.verify_ssl if self.use_ssl else False,
+            ) as resp:
+                await resp.read()
+            _LOGGER.debug("Logged out LuCI session %s...", token[:8])
+        except Exception as err:
+            _LOGGER.debug("Failed to logout LuCI session %s...: %s", token[:8], err)
+
     async def disconnect(self) -> None:
-        """Disconnect and cleanup."""
-        # Shared session managed by HA, no need to close
+        """Disconnect and destroy the rpcd session."""
+        if self._auth_token:
+            await self._logout_session(self._auth_token)
+            self._auth_token = ""
         self._connected = False
 
     async def get_device_info(self) -> DeviceInfo:
