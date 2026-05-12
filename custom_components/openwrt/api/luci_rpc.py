@@ -155,7 +155,7 @@ class LuciRpcClient(OpenWrtClient):
                     ssl=self.verify_ssl if self.use_ssl else False,
                 ) as response:
                     if response.status == 403:
-                        if self._auth_token and not reauthenticated:
+                        if not reauthenticated:
                             reauth_needed = True
                         else:
                             msg = f"Access denied to LuCI RPC on {self.host}"
