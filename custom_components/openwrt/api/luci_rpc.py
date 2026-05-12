@@ -182,9 +182,7 @@ class LuciRpcClient(OpenWrtClient):
                         data = await response.json()
 
             if reauth_needed:
-                old_token = self._auth_token
                 self._auth_token = ""
-                await self._logout_session(old_token)
                 await self.connect()
                 return await self._rpc_call(
                     endpoint,
