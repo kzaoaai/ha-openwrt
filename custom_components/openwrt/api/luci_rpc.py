@@ -114,6 +114,7 @@ class LuciRpcClient(OpenWrtClient):
         self._semaphore = asyncio.Semaphore(
             5
         )  # Limit concurrent RPC calls to avoid overloading uhttpd
+        self._reauth_lock = asyncio.Lock()  # Prevent parallel 403s each calling connect()
 
     @property
     def _base_url(self) -> str:
@@ -182,8 +183,10 @@ class LuciRpcClient(OpenWrtClient):
                         data = await response.json()
 
             if reauth_needed:
-                self._auth_token = ""
-                await self.connect()
+                async with self._reauth_lock:
+                    # Another coroutine may have already reauthenticated while we waited.
+                    if not self._auth_token:
+                        await self.connect()
                 return await self._rpc_call(
                     endpoint,
                     method,
@@ -378,10 +381,6 @@ class LuciRpcClient(OpenWrtClient):
         """Authenticate with LuCI."""
         if self.session is None:
             raise LuciRpcError("Session not initialized")
-        if self._auth_token:
-            old_token = self._auth_token
-            self._auth_token = ""
-            await self._logout_session(old_token)
         session = self.session
         self._rpc_id += 1
 
