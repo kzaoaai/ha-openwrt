@@ -57,21 +57,20 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
 - Prod: HACS v2.5.1 with `all-changes` = v2.5.1 + `fix/tracker-stale-device-cleanup` +
   `fix/luci-rpc-reauth-storm` swapped on top. Both fixes cherry-pick onto v2.5.1 without
   conflicts, and the build loads with no errors on real HA at prod's version.
-- stale-device cleanup is upstream PR FaserF/ha-openwrt#156 (opened 2026-10-05 from the
-  fork's `fix/tracker-stale-device-cleanup`, rebased on `upstream/main` 2.5.2-dev0):
-  `OpenWrtDataCoordinator._async_update_device_registry` (removes entity-less client devices
-  outside the whitelist) and `async_remove_config_entry_device` in `__init__.py`; tests in
-  `tests/test_untracked_device_cleanup.py`. Once it merges and ships, drop its two commits
-  from `all-changes` at the next rebuild.
+- stale-device cleanup: merged upstream as FaserF/ha-openwrt#156 on 2026-10-05 (merge
+  commit `b1c1ade`, all three commits), not yet in a release. `all-changes` still carries
+  it as three cherry-picks; at the first rebuild on a release that contains `b1c1ade`, drop
+  them. Code: `OpenWrtDataCoordinator._async_update_device_registry` and
+  `async_remove_config_entry_device` in `__init__.py`; tests in
+  `tests/test_untracked_device_cleanup.py`.
 - LuCI reauth has no PR yet, on purpose: it goes upstream only after it has handled a real
   token expiry in production. `_rpc_call` in `api/luci_rpc/client.py` (one re-login per
   expired token under a lock); tests at the end of `tests/test_api_luci_rpc.py`. Its branch,
   `fix/luci-rpc-reauth-storm`, is local only and based on an older `upstream/main`
   (`50ae700`): rebase it onto current `upstream/main` before a PR.
-- Upstream v2.5.1 still probes `hasattr(registry.devices, "values")` in `coordinator.py`,
-  which logs HA's "devices used as a mapping" deprecation on 2026.9+. It falls back to plain
-  iteration, so it should keep working when the mapping view goes in 2027.9 (inferred from
-  the code, not tested). A small upstream PR.
+- v2.5.1 logs HA's "devices used as a mapping" deprecation on 2026.9+ (a
+  `hasattr(registry.devices, "values")` probe in `coordinator.py`); upstream removed it on
+  `main` in `1f4af94` (#152), so it goes away with the next release.
 - Inferred, untested: the TX-power cleanup in `number.py` removes every TX-power slider if a
   router reports no wireless interfaces at setup.
 - The real-HA harness lives only in a scratchpad and has to be recreated each time;
