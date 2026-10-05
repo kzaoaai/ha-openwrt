@@ -57,14 +57,17 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
 - Prod: HACS v2.5.1 with `all-changes` = v2.5.1 + `fix/tracker-stale-device-cleanup` +
   `fix/luci-rpc-reauth-storm` swapped on top. Both fixes cherry-pick onto v2.5.1 without
   conflicts, and the build loads with no errors on real HA at prod's version.
-- Neither fix branch has a PR yet (the owner's call). Both are based on an older
-  `upstream/main` (`50ae700`) and need a rebase onto current `upstream/main` first.
-  - stale-device cleanup: `OpenWrtDataCoordinator._async_update_device_registry` (removes
-    entity-less client devices outside the whitelist) and `async_remove_config_entry_device`
-    in `__init__.py`; tests in `tests/test_untracked_device_cleanup.py`.
-  - LuCI reauth: `_rpc_call` in `api/luci_rpc/client.py` (one re-login per expired token
-    under a lock); tests at the end of `tests/test_api_luci_rpc.py`. Not yet exercised in
-    production, because no token has expired since the deploy.
+- stale-device cleanup is upstream PR FaserF/ha-openwrt#156 (opened 2026-10-05 from the
+  fork's `fix/tracker-stale-device-cleanup`, rebased on `upstream/main` 2.5.2-dev0):
+  `OpenWrtDataCoordinator._async_update_device_registry` (removes entity-less client devices
+  outside the whitelist) and `async_remove_config_entry_device` in `__init__.py`; tests in
+  `tests/test_untracked_device_cleanup.py`. Once it merges and ships, drop its two commits
+  from `all-changes` at the next rebuild.
+- LuCI reauth has no PR yet, on purpose: it goes upstream only after it has handled a real
+  token expiry in production. `_rpc_call` in `api/luci_rpc/client.py` (one re-login per
+  expired token under a lock); tests at the end of `tests/test_api_luci_rpc.py`. Its branch,
+  `fix/luci-rpc-reauth-storm`, is local only and based on an older `upstream/main`
+  (`50ae700`): rebase it onto current `upstream/main` before a PR.
 - Upstream v2.5.1 still probes `hasattr(registry.devices, "values")` in `coordinator.py`,
   which logs HA's "devices used as a mapping" deprecation on 2026.9+. It falls back to plain
   iteration, so it should keep working when the mapping view goes in 2027.9 (inferred from
