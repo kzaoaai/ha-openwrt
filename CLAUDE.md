@@ -54,9 +54,10 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
 
 ## Current state and open items
 
-- Prod: HACS v2.5.1 with `all-changes` = v2.5.1 + `fix/tracker-stale-device-cleanup` +
-  `fix/luci-rpc-reauth-storm` swapped on top. Both fixes cherry-pick onto v2.5.1 without
-  conflicts, and the build loads with no errors on real HA at prod's version.
+- Prod: HACS v2.5.1 with `all-changes` swapped on top: v2.5.1 + the stale-device cleanup
+  (cherry-picks of PR #156's three commits) + `fix/luci-rpc-reauth-storm` + the docs
+  commits. All five routers load with no errors on prod (HA 2026.9.4), as on the real-HA
+  check.
 - stale-device cleanup: merged upstream as FaserF/ha-openwrt#156 on 2026-10-05 (merge
   commit `b1c1ade`, all three commits), not yet in a release. `all-changes` still carries
   it as three cherry-picks; at the first rebuild on a release that contains `b1c1ade`, drop
