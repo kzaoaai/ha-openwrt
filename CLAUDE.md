@@ -54,24 +54,20 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
 
 ## Current state and open items
 
-- Prod: HACS v2.5.1 with `all-changes` swapped on top: v2.5.1 + the stale-device cleanup
-  (cherry-picks of PR #156's three commits) + `fix/luci-rpc-reauth-storm` + the docs
-  commits. All five routers load with no errors on prod (HA 2026.9.4), as on the real-HA
-  check.
-- stale-device cleanup: merged upstream as FaserF/ha-openwrt#156 on 2026-10-05 (merge
-  commit `b1c1ade`, all three commits), not yet in a release. `all-changes` still carries
-  it as three cherry-picks; at the first rebuild on a release that contains `b1c1ade`, drop
-  them. Code: `OpenWrtDataCoordinator._async_update_device_registry` and
-  `async_remove_config_entry_device` in `__init__.py`; tests in
-  `tests/test_untracked_device_cleanup.py`.
-- LuCI reauth has no PR yet, on purpose: it goes upstream only after it has handled a real
-  token expiry in production. `_rpc_call` in `api/luci_rpc/client.py` (one re-login per
-  expired token under a lock); tests at the end of `tests/test_api_luci_rpc.py`. Its branch,
-  `fix/luci-rpc-reauth-storm`, is local only and based on an older `upstream/main`
-  (`50ae700`): rebase it onto current `upstream/main` before a PR.
-- v2.5.1 logs HA's "devices used as a mapping" deprecation on 2026.9+ (a
-  `hasattr(registry.devices, "values")` probe in `coordinator.py`); upstream removed it on
-  `main` in `1f4af94` (#152), so it goes away with the next release.
+- `all-changes`: v2.5.2 + `fix/luci-rpc-reauth-storm` (2 commits) + `fix/gateway-via-device`
+  + the docs commits. Passed the real-HA check on HA 2026.9.4; plain v2.5.2 failed it
+  (router left unlinked from its gateway).
+- stale-device cleanup (#156) shipped in v2.5.2; the cherry-picks are gone from
+  `all-changes`.
+- LuCI reauth: upstream PR FaserF/ha-openwrt#159, open. `_rpc_call` in
+  `api/luci_rpc/client.py` (one re-login per expired token under a lock); tests at the end
+  of `tests/test_api_luci_rpc.py`. A forced rpcd restart on a router left 8 rpcd sessions
+  without it and 1 with it; neither run logged errors.
+- Gateway link (`fix/gateway-via-device`, no PR yet): v2.5.2 looks the gateway up with
+  `async_get_device_by_connection(conn, entry_id)`, which only searches this entry, so a
+  router never links to an upstream router owned by another entry. The fix searches every
+  entry with `async_get_devices(connections=...)` and skips this entry's own devices. PR
+  it after it has run on prod. Tests: `tests/test_gateway_via_device.py`.
 - Inferred, untested: the TX-power cleanup in `number.py` removes every TX-power slider if a
   router reports no wireless interfaces at setup.
 - The real-HA harness lives only in a scratchpad and has to be recreated each time;
