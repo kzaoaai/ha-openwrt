@@ -66,8 +66,17 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
 - Gateway link (`fix/gateway-via-device`, no PR yet): v2.5.2 looks the gateway up with
   `async_get_device_by_connection(conn, entry_id)`, which only searches this entry, so a
   router never links to an upstream router owned by another entry. The fix searches every
-  entry with `async_get_devices(connections=...)` and skips this entry's own devices. PR
-  it after it has run on prod. Tests: `tests/test_gateway_via_device.py`.
+  entry with `async_get_devices(connections=...)` and skips this entry's own devices.
+  Deployed 2026-10-06; Routers 2-5 link to Router1 on prod. The owner agreed to PR it
+  after a few days on prod with no router errors (not before 2026-10-09). Tests:
+  `tests/test_gateway_via_device.py`.
+- HA's "`device_registry.devices` used as a mapping" deprecation still logs once per
+  startup from `coordinator/features.py` (the `hasattr(device_reg.devices, "values")`
+  probe, ~line 181); #152 only removed the copy in the old `coordinator.py`. Still on
+  `upstream/main`. Agreed: a separate small upstream PR, after the gateway one.
+- A shutdown that lands mid-poll logs `Unexpected error fetching ... data` /
+  `RuntimeError: Executor shutdown has been called` from the tracker-history save in
+  `coordinator/tracking.py`. Cosmetic, upstream, not ours.
 - Inferred, untested: the TX-power cleanup in `number.py` removes every TX-power slider if a
   router reports no wireless interfaces at setup.
 - The real-HA harness lives only in a scratchpad and has to be recreated each time;
