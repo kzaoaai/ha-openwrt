@@ -55,7 +55,7 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
 ## Current state and open items
 
 - `all-changes`: v2.5.2 + `fix/luci-rpc-reauth-storm` (2 commits) + `fix/gateway-via-device`
-  + the docs commits. Passed the real-HA check on HA 2026.9.4; plain v2.5.2 failed it
+  + the docs commits. Passed the real-HA check on HA 2026.9.4 and 2026.10.0 (prod runs 2026.10.0 since 2026-10-09); plain v2.5.2 failed it
   (router left unlinked from its gateway).
 - stale-device cleanup (#156) shipped in v2.5.2; the cherry-picks are gone from
   `all-changes`.
@@ -71,6 +71,12 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
   2026-10-09 (15 HA restarts, no openwrt errors beyond known noise), then opened upstream
   as FaserF/ha-openwrt#160: one commit (`9e133a1`) rebased onto `upstream/main` 4ae06c9,
   pushed to `origin/fix/gateway-via-device`. Tests: `tests/test_gateway_via_device.py`.
+  On 2026-10-09 the PR gained `96efb9f` (also on `all-changes`): HA 2026.10 deprecates
+  reading `DeviceEntry.config_entries` (stops working in 2027.10), so the gateway filter,
+  the untracked-client cleanup and the diagnostics dump read `config_entry_id` first.
+  Verified on real HA 2026.10.0 and 2026.9.4. #160's red "Lint & Test" is HA 2026.10's
+  `probatio` typing in untouched files (`config_flow.py`, `repairs.py`, `services.py`),
+  which fails #159 too; said so on the PR.
 - HA's "`device_registry.devices` used as a mapping" deprecation still logs once per
   startup from `coordinator/features.py` (the `hasattr(device_reg.devices, "values")`
   probe, ~line 181); #152 only removed the copy in the old `coordinator.py`. Still on
