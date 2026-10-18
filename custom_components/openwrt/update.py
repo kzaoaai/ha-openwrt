@@ -394,18 +394,21 @@ class OpenWrtUpdateEntity(CoordinatorEntity[OpenWrtDataCoordinator], UpdateEntit
                         "ASU build requested (hash: %s). Waiting for image...",
                         request_hash,
                     )
-                    download_url = await asu_client.poll_build_status(request_hash)
+                    image = await asu_client.poll_build_status(request_hash)
 
                     _LOGGER.info(
                         "ASU build complete. Flashing image from: %s",
-                        download_url,
+                        image.url,
                     )
                     self.coordinator.in_reboot_installation = True
                     # ASU builds always keep settings by default in OpenWrt logic,
-                    # but we pass it anyway.
+                    # but we pass it anyway. The router checks the image against
+                    # the sha256 the ASU server published for it.
                     await self.coordinator.client.install_firmware(
-                        download_url,
+                        image.url,
                         keep_settings=True,
+                        force=False,
+                        sha256=image.sha256,
                     )
 
                 except Exception as err:
@@ -426,10 +429,11 @@ class OpenWrtUpdateEntity(CoordinatorEntity[OpenWrtDataCoordinator], UpdateEntit
                 # Mark coordinator that a reboot/sysupgrade is expected
                 self.coordinator.in_reboot_installation = True
                 # Never force (-F): sysupgrade's own image/board checks are the
-                # last guard against a wrong image. Custom repository images are
-                # verified against the release's published sha256 when present.
-                checksum = data.firmware_checksum if data.is_custom_build else ""
-                if data.is_custom_build and not checksum:
+                # last guard against a wrong image. Images are verified against
+                # the published sha256 (profiles.json for official images, the
+                # release's sha256sums for custom repositories) when present.
+                checksum = data.firmware_checksum
+                if not checksum:
                     _LOGGER.warning(
                         "No SHA256 checksum published for %s; flashing without "
                         "checksum verification",

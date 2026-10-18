@@ -22,7 +22,12 @@ from ..base import (
     check_sysupgrade_output,
     classify_service,
 )
-from .exceptions import SshError
+from .exceptions import SshError, SshTimeoutError
+
+# The download and checksum steps print nothing to stdout, and paramiko's
+# timeout is the longest wait for stdout, so it has to cover a whole image
+# download on a slow uplink.
+FIRMWARE_INSTALL_TIMEOUT = 900
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -364,13 +369,29 @@ class SshFeaturesMixin:
     ) -> None:
         """Install firmware from the given URL via SSH."""
         cmd = build_sysupgrade_command(url, keep_settings, force, sha256)
+        # The command runs once, without _exec's reconnect-and-retry: a second
+        # run would start another download and flash. So reconnect here, where
+        # a failure means nothing was started.
+        if self._client is None:
+            await self.connect()
         try:
             _LOGGER.info("Initiating firmware installation via SSH from: %s", url)
-            # We expect this to eventually fail or disconnect as the router reboots
-            output = await self._exec(cmd)
+            # We expect this to eventually fail or disconnect as the router reboots.
+            output = await self._exec(
+                cmd, retry=False, timeout=FIRMWARE_INSTALL_TIMEOUT
+            )
             check_sysupgrade_output(output)
         except FirmwareInstallError:
             raise
+        except SshTimeoutError as err:
+            # Silence is not a reboot: sysupgrade closes the session when it
+            # takes over. The download may still be running or have stalled.
+            msg = (
+                f"No response from the router for {FIRMWARE_INSTALL_TIMEOUT}s while "
+                "downloading the firmware; it is unknown whether sysupgrade "
+                "started. Check the router before retrying."
+            )
+            raise FirmwareInstallError(msg) from err
         except Exception as err:
             # If it's a connection error, it's likely the router rebooting
             err_msg = str(err).lower()
@@ -381,7 +402,6 @@ class SshFeaturesMixin:
                     "broken pipe",
                     "closed",
                     "eof",
-                    "timeout",
                     "cannot connect",
                     "could not connect",
                     "connection lost",
