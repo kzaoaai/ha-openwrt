@@ -383,21 +383,7 @@ class OpenWrtUpdateEntity(CoordinatorEntity[OpenWrtDataCoordinator], UpdateEntit
 
             packages: list[str] = []
             if mode == INSTALL_ASU:
-                # An empty list with diff_packages would make ASU build the
-                # stock package set, which is exactly what ASU is here to avoid.
-                try:
-                    packages = await self.coordinator.client.get_installed_packages()
-                except Exception as err:
-                    msg = (
-                        f"Could not read the installed packages from the router: {err}"
-                    )
-                    raise HomeAssistantError(msg) from err
-                if not packages:
-                    msg = (
-                        "Could not read the installed packages from the router, "
-                        "so an ASU image would not include them. Aborting."
-                    )
-                    raise HomeAssistantError(msg)
+                packages = await self._async_asu_packages()
 
             if mode == INSTALL_STOCK:
                 extra = await self.coordinator.async_get_non_default_packages(data)
@@ -456,6 +442,34 @@ class OpenWrtUpdateEntity(CoordinatorEntity[OpenWrtDataCoordinator], UpdateEntit
                 raise HomeAssistantError(msg) from err
         finally:
             self._in_progress = False
+
+    async def _async_asu_packages(self) -> list[str]:
+        """Return the package list to send with an ASU build request.
+
+        Like owut and the LuCI ASU page, send the explicitly installed set
+        (/etc/apk/world, or opkg's user-installed packages). The full
+        installed list is the fallback when that cannot be read. An empty
+        list is refused: with diff_packages, ASU would build the stock set.
+        """
+        client = self.coordinator.client
+        try:
+            packages = await client.get_user_installed_packages()
+            if packages is None:
+                _LOGGER.debug(
+                    "Explicitly installed packages unreadable; "
+                    "using the full installed list for ASU"
+                )
+                packages = await client.get_installed_packages()
+        except Exception as err:
+            msg = f"Could not read the installed packages from the router: {err}"
+            raise HomeAssistantError(msg) from err
+        if not packages:
+            msg = (
+                "Could not read the installed packages from the router, "
+                "so an ASU image would not include them. Aborting."
+            )
+            raise HomeAssistantError(msg)
+        return list(packages)
 
     async def _async_install_asu(self, data: Any, packages: list[str]) -> None:
         """Request an ASU build with the router's packages and flash it."""
