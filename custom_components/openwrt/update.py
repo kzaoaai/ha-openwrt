@@ -463,13 +463,14 @@ class OpenWrtUpdateEntity(CoordinatorEntity[OpenWrtDataCoordinator], UpdateEntit
         except Exception as err:
             msg = f"Could not read the installed packages from the router: {err}"
             raise HomeAssistantError(msg) from err
+        packages = [p for p in packages or [] if isinstance(p, str) and p]
         if not packages:
             msg = (
                 "Could not read the installed packages from the router, "
                 "so an ASU image would not include them. Aborting."
             )
             raise HomeAssistantError(msg)
-        return list(packages)
+        return packages
 
     async def _async_install_asu(self, data: Any, packages: list[str]) -> None:
         """Request an ASU build with the router's packages and flash it."""
