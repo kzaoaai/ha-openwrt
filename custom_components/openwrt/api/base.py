@@ -884,6 +884,10 @@ class OpenWrtData:
     upgradeable_packages: dict[str, str] = field(default_factory=dict)
     asu_supported: bool = False
     asu_update_available: bool = False
+    asu_status: str = ""  # one of const.ASU_STATUS_*; "" = not checked
+    asu_status_reason: str = ""
+    asu_target_version: str = ""  # version string to request from ASU
+    asu_profile: str = ""  # ASU profile name that matched this board
     asu_image_status: str = ""  # e.g. "available", "building", "failed"
     asu_image_url: str | None = None
     lldp_neighbors: list[LldpNeighbor] = field(default_factory=list)
@@ -1622,6 +1626,40 @@ class OpenWrtClient(abc.ABC):
     async def get_installed_packages(self) -> list[str]:
         """Get a list of installed packages on the device."""
         raise NotImplementedError
+
+    async def get_user_installed_packages(self) -> list[str] | None:
+        """Get the packages that were explicitly requested (not pulled in as deps).
+
+        On APK firmware this is /etc/apk/world; on opkg firmware it is every
+        package flagged "user" in /usr/lib/opkg/status. Returns None when the
+        list cannot be read, so callers can tell "nothing extra" from "unknown".
+        """
+        marker = "__OPENWRT_HA_PKG_LIST__"
+        cmd = (
+            f"echo {marker}; "
+            "if [ -f /etc/apk/world ]; then cat /etc/apk/world; "
+            "elif [ -f /usr/lib/opkg/status ]; then "
+            "awk '/^Package:/{p=$2} /^Status:/ && / user /{print p}' "
+            "/usr/lib/opkg/status; "
+            "else echo __NO_PACKAGE_DB__; fi"
+        )
+        try:
+            output = await self.execute_command(cmd)
+        except Exception as err:
+            _LOGGER.debug("Failed to read user-installed packages: %s", err)
+            return None
+        if not output or marker not in output:
+            return None
+        body = output.split(marker, 1)[1]
+        if "__NO_PACKAGE_DB__" in body:
+            return None
+        packages: list[str] = []
+        for raw in body.split():
+            # apk world entries may carry constraints: pkg>=1.0, pkg=1.0, pkg@tag
+            name = re.split(r"[<>=~@]", raw, maxsplit=1)[0].strip()
+            if name and name not in packages:
+                packages.append(name)
+        return packages
 
     @abc.abstractmethod
     async def perform_diagnostics(self) -> list[DiagnosticResult]:
