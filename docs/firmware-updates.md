@@ -14,7 +14,7 @@ The integration provides a powerful firmware update entity that supports officia
 | **Install from Custom Repo** | ✅ | ✅ | ✅ | ✅ (direct download) |
 | **Attended Sysupgrade (ASU)** | ✅ | ✅ | ✅ | ❌ (not needed) |
 | **Automated Backups** | ✅ | ✅ | ✅ | ✅ |
-| **SHA256 Checksum Verification** | ❌ | ❌ | ❌ | ✅ (if `sha256sums` asset exists) |
+| **SHA256 Verification Before Flashing** | Custom repo images only | Custom repo images only | Custom repo images only | ✅ (if the release has a `sha256sums` asset) |
 
 ## Attended Sysupgrade (ASU)
 
@@ -59,7 +59,7 @@ If you use a **custom OpenWrt fork** that publishes firmware via **GitHub Releas
 1. **Configure**: In the integration options, set the **"Custom Firmware Repo"** field to the GitHub repository (e.g. `AgustinLorenzo/openwrt` or the full URL `https://github.com/AgustinLorenzo/openwrt`).
 2. **Version Detection**: The integration queries the GitHub Releases API and compares the latest release tag against your router's current firmware revision hash (from `release.revision`).
 3. **Asset Matching**: It automatically scans the release assets for a `sysupgrade.bin` file matching your router's **target** (e.g. `qualcommax-ipq807x`) and **board name** (e.g. `xiaomi_ax3600`). If a matching asset is found, the **Install** button is enabled.
-4. **Checksum Verification**: If a `sha256sums` file is present in the release assets, the integration automatically extracts the correct checksum for your firmware file and displays it.
+4. **Checksum Verification**: If a `sha256sums` file is present in the release assets, the integration extracts the checksum for your firmware file, shows it, and checks the downloaded image against it on the router before running `sysupgrade`. On a mismatch the image is deleted and nothing is flashed. Without a `sha256sums` asset the image is flashed unverified, and a warning is logged.
 5. **Release Notes**: The entity links directly to the GitHub release page for full release notes.
 
 ### Custom Firmware Pattern
@@ -72,7 +72,11 @@ If left empty, the integration auto-generates a pattern based on your router's `
 > Custom firmware repositories use the **GitHub Releases API** (not ASU). This means:
 > - **No custom ASU server is required** — the integration downloads directly from the GitHub release assets.
 > - The repository must publish firmware as **GitHub Release assets** (`.bin` files attached to tagged releases).
+> - Images are downloaded with TLS certificate verification and flashed without `sysupgrade -F`, so `sysupgrade` still rejects an image that does not match the board.
 > - The GitHub API has rate limits (60 requests/hour for unauthenticated requests). Firmware checks happen periodically (every 6 hours by default), so this should not be an issue.
+
+> [!NOTE]
+> Over LuCI RPC and Ubus, the download, checksum and `sysupgrade` run in the background on the router (in `/tmp/openwrt-ha-fw-<id>/`) and Home Assistant polls them, because rpcd and uhttpd stop a request after 30–60 s. The install reports success only once `sysupgrade` has started. If the download and checks take longer than 15 minutes, the install is cancelled before `sysupgrade` and reported as failed; if the router stops answering before `sysupgrade` starts, the install is reported as failed with the router's state unknown. A second install is refused while one is still running on the router.
 
 > [!WARNING]
 > When a custom repo is configured, the integration will **only** check that repository for updates. Official OpenWrt release checks and ASU are disabled in this mode.

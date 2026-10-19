@@ -193,6 +193,7 @@ class FirmwareMixin(_Base):
                     for img in board_profile.get("images", []):
                         if "sysupgrade" in img.get("name", ""):
                             data.firmware_install_url = f"{base_url}{img.get('name')}"
+                            data.firmware_checksum = img.get("sha256", "")
                             break
 
     async def _check_stable_release_update(
@@ -255,10 +256,13 @@ class FirmwareMixin(_Base):
                         for img in board_profile.get("images", []):
                             if "sysupgrade" in img.get("name", ""):
                                 data.firmware_install_url = f"https://downloads.openwrt.org/releases/{latest_stable}/targets/{target}/{img.get('name')}"
+                                data.firmware_checksum = img.get("sha256", "")
                                 break
 
         if not data.firmware_install_url:
-            # Fallback to static URL construction
+            # Fallback to static URL construction. The file name is guessed,
+            # so there is no published checksum to verify it against.
+            data.firmware_checksum = ""
             board = info.board_name.replace("_", "-").replace(",", "-")
             dist = info.release_distribution or "openwrt"
             data.firmware_install_url = (
@@ -728,12 +732,18 @@ class FirmwareMixin(_Base):
     ) -> None:
         """Fetch and parse checksum file from GitHub."""
         with contextlib.suppress(Exception):
-            async with session.get(sha_url) as resp:
+            async with session.get(
+                sha_url, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
                 if resp.status == 200:
                     content = await resp.text()
                     for line in content.splitlines():
-                        if asset_name in line:
-                            data.firmware_checksum = line.split()[0]
+                        # "<sha256>  <name>" or "<sha256> *<name>" (binary mode).
+                        # Match the file name exactly: a substring match would
+                        # also hit e.g. "<name>.sig" or a longer file name.
+                        parts = line.split()
+                        if len(parts) >= 2 and parts[-1].lstrip("*") == asset_name:
+                            data.firmware_checksum = parts[0]
                             break
 
     _parse_repo = staticmethod(parse_repo)

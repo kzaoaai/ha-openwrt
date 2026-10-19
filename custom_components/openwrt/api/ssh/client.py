@@ -72,15 +72,19 @@ class SshClient(
         self._client: Any = None
         self._semaphore = asyncio.Semaphore(2)
 
-    async def _exec(self, command: str, retry: bool = True) -> str:
-        """Execute a command via SSH and return stdout."""
+    async def _exec(self, command: str, retry: bool = True, timeout: float = 15) -> str:
+        """Execute a command via SSH and return stdout.
+
+        timeout is paramiko's channel timeout: the longest wait for the next
+        chunk of stdout, not a limit on the whole command.
+        """
         loop = asyncio.get_event_loop()
 
         def _run() -> str:
             if self._client is None:
                 msg = "Not connected"
                 raise SshError(msg)
-            _stdin, stdout, stderr = self._client.exec_command(command, timeout=15)
+            _stdin, stdout, stderr = self._client.exec_command(command, timeout=timeout)
             # Read streams to prevent blocking
             out_bytes = stdout.read()
             err_bytes = stderr.read()
@@ -113,7 +117,7 @@ class SshClient(
                 _LOGGER.debug("Attempting to reconnect and retry SSH command...")
                 try:
                     if await self.connect():
-                        return await self._exec(command, retry=False)
+                        return await self._exec(command, retry=False, timeout=timeout)
                 except Exception as reconnect_err:
                     _LOGGER.debug(
                         "SSH reconnection failed during retry: %s",
@@ -127,6 +131,10 @@ class SshClient(
 
             if isinstance(err, SshError):
                 raise
+            if isinstance(err, TimeoutError):
+                raise SshTimeoutError(
+                    f"SSH command produced no output for {timeout}s"
+                ) from err
             raise SshConnectionError(f"SSH command failed: {err}") from err
 
     async def execute_command(self, command: str) -> str:
