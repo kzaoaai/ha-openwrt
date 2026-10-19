@@ -486,7 +486,7 @@ async def test_asu_install_passes_image_sha256(hass: HomeAssistant) -> None:
     data.asu_update_available = True
     data.firmware_latest_version = "25.12.6"
     entity = _install_entity(hass, data)
-    entity.coordinator.client.get_installed_packages = AsyncMock(
+    entity.coordinator.client.get_user_installed_packages = AsyncMock(
         return_value=["base-files"]
     )
 
