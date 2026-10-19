@@ -483,6 +483,7 @@ async def test_asu_install_refused_without_package_list(hass: HomeAssistant) -> 
     data.asu_supported = True
     data.asu_update_available = True
     entity, coordinator = _entity(hass, data)
+    coordinator.client.get_user_installed_packages = AsyncMock(return_value=None)
     coordinator.client.get_installed_packages = AsyncMock(return_value=[])
 
     with (
@@ -505,7 +506,7 @@ async def test_asu_install_builds_with_router_packages(hass: HomeAssistant) -> N
     data.asu_profile = "tplink_archer-c7-v2"
     entity, coordinator = _entity(hass, data)
     coordinator._get_target = MagicMock(side_effect=lambda t: t)
-    coordinator.client.get_installed_packages = AsyncMock(
+    coordinator.client.get_user_installed_packages = AsyncMock(
         return_value=["base-files", "tailscale"]
     )
 
@@ -602,3 +603,91 @@ async def test_get_user_installed_packages_parsing() -> None:
 
         mock_exec.side_effect = RuntimeError("permission denied")
         assert await client.get_user_installed_packages() is None
+
+
+# --- Package names sent to ASU ---
+
+# Real apk names with a dash followed by a digit, as `apk info` prints them
+# (no version suffix without -v). None of these may be shortened.
+APK_NAMES = [
+    "base-files",
+    "kmod-ath11k",
+    "ath11k-firmware-ipq8074",
+    "libnghttp2-14",
+    "libustream-mbedtls20201210",
+    "tailscale",
+]
+
+
+@pytest.mark.asyncio
+async def test_installed_package_names_are_not_stripped() -> None:
+    """apk names like libnghttp2-14 reach callers unchanged on every backend."""
+    from custom_components.openwrt.api.luci_rpc import LuciRpcClient
+    from custom_components.openwrt.api.ssh import SshClient
+    from custom_components.openwrt.api.ubus import UbusClient
+
+    kwargs = {"host": "192.0.2.1", "username": "root", "password": "pwd"}
+    output = "\n".join(APK_NAMES) + "\n"
+    for client, runner in [
+        (LuciRpcClient(MagicMock(), MagicMock(), **kwargs), "execute_command"),
+        (UbusClient(MagicMock(), MagicMock(), **kwargs), "execute_command"),
+        (SshClient(MagicMock(), MagicMock(), **kwargs), "_exec"),
+    ]:
+        with patch.object(client, runner, new_callable=AsyncMock, return_value=output):
+            assert await client.get_installed_packages() == APK_NAMES
+
+
+@pytest.mark.asyncio
+async def test_asu_build_sends_apk_world_names_unchanged(hass: HomeAssistant) -> None:
+    """The ASU request carries the explicitly installed set, names untouched."""
+    data = _release_router_data()
+    data.asu_status = "available"
+    data.asu_supported = True
+    data.asu_update_available = True
+    data.asu_target_version = "25.12.6"
+    entity, coordinator = _entity(hass, data)
+    coordinator._get_target = MagicMock(side_effect=lambda t: t)
+    coordinator.client.get_user_installed_packages = AsyncMock(return_value=APK_NAMES)
+    coordinator.client.get_installed_packages = AsyncMock(return_value=["unused"])
+
+    asu_instance = MagicMock()
+    asu_instance.request_build = AsyncMock(side_effect=RuntimeError("stop here"))
+    with (
+        patch(
+            "custom_components.openwrt.helpers.asu.AsuClient",
+            return_value=asu_instance,
+        ),
+        pytest.raises(HomeAssistantError),
+    ):
+        await entity.async_install(version=None, backup=False)
+
+    assert asu_instance.request_build.call_args.kwargs["packages"] == APK_NAMES
+    coordinator.client.get_installed_packages.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_asu_build_falls_back_to_full_list_without_world(
+    hass: HomeAssistant,
+) -> None:
+    """If the explicit set cannot be read, the full installed list is sent."""
+    data = _release_router_data()
+    data.asu_status = "available"
+    data.asu_supported = True
+    data.asu_update_available = True
+    entity, coordinator = _entity(hass, data)
+    coordinator._get_target = MagicMock(side_effect=lambda t: t)
+    coordinator.client.get_user_installed_packages = AsyncMock(return_value=None)
+    coordinator.client.get_installed_packages = AsyncMock(return_value=APK_NAMES)
+
+    asu_instance = MagicMock()
+    asu_instance.request_build = AsyncMock(side_effect=RuntimeError("stop here"))
+    with (
+        patch(
+            "custom_components.openwrt.helpers.asu.AsuClient",
+            return_value=asu_instance,
+        ),
+        pytest.raises(HomeAssistantError),
+    ):
+        await entity.async_install(version=None, backup=False)
+
+    assert asu_instance.request_build.call_args.kwargs["packages"] == APK_NAMES
