@@ -1259,7 +1259,15 @@ async def test_non_default_packages_against_stock_profile(hass: HomeAssistant) -
     """Extra packages are the explicitly installed ones the stock image lacks."""
     coordinator = _asu_coordinator(hass)
     coordinator.client.get_user_installed_packages = AsyncMock(
-        return_value=["base-files", "dnsmasq", "luci", "kmod-usb2", "tailscale", "pbr"]
+        return_value=[
+            "base-files",
+            "dnsmasq",
+            "luci",
+            "kernel",
+            "kmod-usb2",
+            "tailscale",
+            "pbr",
+        ]
     )
     data = _release_router_data()
     profiles_url = (
@@ -1598,3 +1606,107 @@ async def test_client_refresh_device_info_updates_cache_and_forces_slow_poll() -
         assert await client.async_refresh_device_info() is info
     assert client._cached_device_info is info
     assert client._last_slow_poll_time == 0.0
+
+
+# --- apk world entries that are not package names ---
+
+WORLD_WITH_CONSTRAINTS = (
+    "__OPENWRT_HA_PKG_LIST__\n"
+    "base-files\n"
+    "!wpad-basic-mbedtls\n"
+    "wpad-mbedtls\n"
+    "kernel=6.12.112~f0a7348f9cb959e1bf4d0447669b031e-r1\n"
+    "tailscale>=1.80\n"
+    "pbr@custom\n"
+    "libnghttp2-14\n"
+)
+CLEAN_WORLD = [
+    "base-files",
+    "wpad-mbedtls",
+    "kernel",
+    "tailscale",
+    "pbr",
+    "libnghttp2-14",
+]
+
+
+@pytest.mark.asyncio
+async def test_world_exclusions_and_constraints_are_not_package_names() -> None:
+    """'!pkg' entries are dropped and constraint suffixes are stripped."""
+    from custom_components.openwrt.api.ssh import SshClient
+
+    client = SshClient(
+        MagicMock(), MagicMock(), host="192.0.2.1", username="root", password="pwd"
+    )
+    with patch.object(
+        client,
+        "execute_command",
+        new_callable=AsyncMock,
+        return_value=WORLD_WITH_CONSTRAINTS,
+    ):
+        assert await client.get_user_installed_packages() == CLEAN_WORLD
+
+
+@pytest.mark.asyncio
+async def test_asu_payload_gets_only_clean_world_names(hass: HomeAssistant) -> None:
+    """End to end: a world with '!pkg' and constraints yields a valid payload."""
+    from custom_components.openwrt.api.ssh import SshClient
+    from custom_components.openwrt.helpers.asu import AsuClient
+
+    data = _release_router_data()
+    data.asu_status = "available"
+    data.asu_supported = True
+    data.asu_update_available = True
+    data.asu_target_version = "25.12.6"
+    entity, coordinator = _entity(hass, data)
+    coordinator._get_target = MagicMock(side_effect=lambda t: t)
+    ssh = SshClient(
+        MagicMock(), MagicMock(), host="192.0.2.1", username="root", password="pwd"
+    )
+    coordinator.client = ssh
+
+    payloads: list[dict] = []
+
+    async def fake_request(method, path, payload=None, timeout=60.0):
+        payloads.append(payload)
+        raise RuntimeError("stop after the build request")
+
+    with (
+        patch.object(
+            ssh,
+            "execute_command",
+            new_callable=AsyncMock,
+            return_value=WORLD_WITH_CONSTRAINTS,
+        ),
+        patch.object(AsuClient, "_request", side_effect=fake_request),
+        pytest.raises(HomeAssistantError),
+    ):
+        await entity.async_install(version=None, backup=False)
+
+    assert payloads[0]["packages"] == CLEAN_WORLD
+    assert not any(p.startswith("!") for p in payloads[0]["packages"])
+
+
+@pytest.mark.asyncio
+async def test_asu_refuses_invalid_package_names_before_requesting(
+    hass: HomeAssistant,
+) -> None:
+    """A name ASU would reject is named in the error and nothing is sent."""
+    from custom_components.openwrt.helpers.asu import AsuClient
+
+    data = _release_router_data()
+    data.asu_status = "available"
+    data.asu_supported = True
+    data.asu_update_available = True
+    entity, coordinator = _entity(hass, data)
+    coordinator.client.get_user_installed_packages = AsyncMock(
+        return_value=["base-files", "odd$name"]
+    )
+
+    with (
+        patch.object(AsuClient, "_request", new_callable=AsyncMock) as mock_request,
+        pytest.raises(HomeAssistantError, match=r"odd\$name"),
+    ):
+        await entity.async_install(version=None, backup=False)
+    mock_request.assert_not_called()
+    coordinator.client.install_firmware.assert_not_called()
