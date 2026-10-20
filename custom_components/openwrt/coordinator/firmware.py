@@ -542,6 +542,8 @@ class FirmwareMixin(_Base):
                 stock.discard(pkg[1:])
             else:
                 stock.add(pkg)
+        # apk world pins the kernel ("kernel=<version>"); every image has one.
+        stock.add("kernel")
         if not is_snapshot:
             # Release images ship LuCI although profiles.json does not list it.
             stock.add("luci")

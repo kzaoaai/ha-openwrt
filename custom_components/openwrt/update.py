@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 from homeassistant.components.update import (
@@ -43,6 +44,9 @@ INSTALL_ASU = "asu"
 INSTALL_STOCK = "stock"
 INSTALL_CUSTOM = "custom"
 INSTALL_NONE = "none"
+
+# Package names the ASU server accepts (its request schema: ^[\w.,-]*$)
+ASU_PACKAGE_NAME = re.compile(r"[\w.,-]+", re.ASCII)
 
 MANUAL_UPGRADE_HINT = (
     "Upgrade by hand with owut or the LuCI Attended Sysupgrade page, which "
@@ -457,6 +461,16 @@ class OpenWrtUpdateEntity(CoordinatorEntity[OpenWrtDataCoordinator], UpdateEntit
             msg = (
                 "Could not read the installed packages from the router, "
                 "so an ASU image would not include them. Aborting."
+            )
+            raise HomeAssistantError(msg)
+        # ASU rejects (422) any name outside this pattern; say which one
+        # instead of sending a request that fails.
+        invalid = [p for p in packages if not ASU_PACKAGE_NAME.fullmatch(p)]
+        if invalid:
+            msg = (
+                "Cannot request an ASU build: these installed package entries "
+                f"are not valid package names: {', '.join(invalid)}. "
+                + MANUAL_UPGRADE_HINT
             )
             raise HomeAssistantError(msg)
         return packages
