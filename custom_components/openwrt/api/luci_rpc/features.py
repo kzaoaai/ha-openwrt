@@ -1,7 +1,6 @@
 # mypy: disable-error-code="attr-defined"
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from typing import Any
@@ -128,34 +127,17 @@ class LuciRpcFeaturesMixin:
                 raise LuciRpcError(msg) from err
 
     async def download_file(self, remote_path: str, local_path: str) -> bool:
-        """Download a file from the router via LuCI RPC file.read."""
-        try:
-            import base64
+        """Download a file from the router via LuCI RPC.
 
-            # Try LuCI file.read first
-            try:
-                res = await self._rpc_call("file", "read", [remote_path])
-                if res and isinstance(res, str):
-                    await asyncio.to_thread(
-                        self._write_bytes, local_path, base64.b64decode(res)
-                    )
-                    return True
-            except (
-                LuciRpcTimeoutError,
-                LuciRpcConnectionError,
-                LuciRpcSslError,
-                LuciRpcAuthError,
-            ):
-                raise
-            except LuciRpcError:
-                # Fallback to sys.exec if file read is not available
-                # Fabian's AX3600 has openssl but no standalone base64 command
-                cmd = f"openssl base64 -in {remote_path} || base64 {remote_path} || cat {remote_path} | base64"
-                output = await self.execute_command(cmd)
-                if output:
-                    data = base64.b64decode(output.replace("\n", "").replace("\r", ""))
-                    await asyncio.to_thread(self._write_bytes, local_path, data)
-                    return True
+        luci-mod-rpc's file.read returns the raw file content as a JSON
+        string, not base64, so binary files (backups) cannot survive it.
+        The file is encoded on the router in a single sys.exec instead and
+        checked against the router's byte count.
+        """
+        try:
+            return await self._download_file_via_command(
+                remote_path, local_path, self.execute_command
+            )
         except (
             LuciRpcTimeoutError,
             LuciRpcConnectionError,
