@@ -165,6 +165,8 @@ class OpenWrtDataCoordinator(
         self.config_entry = config_entry
         self.in_reboot_installation = False
         self._firmware_checked = False
+        self._firmware_revision: str | None = None
+        self._device_info_refresh_pending = False
         # Initialize firmware check timer to avoid blocking initial startup with external GitHub/ASU API calls
         self._last_firmware_check: float = (
             self.hass.loop.time() if self.hass and self.hass.loop else 0.0
@@ -317,6 +319,7 @@ class OpenWrtDataCoordinator(
                     "Device rebooted successfully after firmware update, connection restored."
                 )
                 self.in_reboot_installation = False
+                self._device_info_refresh_pending = True
             # Reset backoff on success
             if self._current_backoff_interval != self._configured_update_interval:
                 self._current_backoff_interval = self._configured_update_interval
@@ -349,6 +352,7 @@ class OpenWrtDataCoordinator(
 
         async_delete_connection_lost_repair(self.hass, self.config_entry)
 
+        await self._async_refresh_device_info_after_reboot(data)
         self._async_sync_firmware_state(data)
 
         # Periodic firmware checks (wrapped in try-except to prevent crashing the whole coordinator)
