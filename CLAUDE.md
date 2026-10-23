@@ -64,7 +64,9 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
 - Open upstream PR FaserF/ha-openwrt#195 (branch `fix/action-forces-slow-poll`, from
   `upstream/main` 2026-10-23): every router action reset the never-read `_last_full_poll`,
   so the refresh after a service-switch toggle did not re-read services (slow tier, 900 s).
-  It now resets `_last_slow_poll_time`. Not in prod: wait for the upstream release rather
+  Actions now call `_invalidate_slow_poll()`, with a generation counter so one landing
+  mid-poll is not overwritten (race found by CodeRabbit). FaserF's review bot asked for file
+  splits and logging in pre-existing code; offered as follow-up PRs. Not in prod: wait for the upstream release rather
   than a file swap. Until then a toggle made in LuCI or over SSH shows in HA up to 15 min
   late, and a toggle from HA shows its optimistic state until the next slow poll.
 - Upstream's red "Lint & Test" since HA 2026.10.0 was its `probatio` typing in
