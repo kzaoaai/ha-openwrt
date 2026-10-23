@@ -61,6 +61,12 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
   2026-10-11, files md5-identical to the tag; passed the real-HA setup check on 2026.10.0).
   No file swap is needed until a new fix branch exists. The v2.5.2-based build is kept as the local
   branch `all-changes-v2.5.2`.
+- Open upstream PR FaserF/ha-openwrt#195 (branch `fix/action-forces-slow-poll`, from
+  `upstream/main` 2026-10-23): every router action reset the never-read `_last_full_poll`,
+  so the refresh after a service-switch toggle did not re-read services (slow tier, 900 s).
+  It now resets `_last_slow_poll_time`. Not in prod: wait for the upstream release rather
+  than a file swap. Until then a toggle made in LuCI or over SSH shows in HA up to 15 min
+  late, and a toggle from HA shows its optimistic state until the next slow poll.
 - Upstream's red "Lint & Test" since HA 2026.10.0 was its `probatio` typing in
   `config_flow.py`, `repairs.py`, `services.py`; upstream `88bc38a` addresses mypy errors.
 - A shutdown that lands mid-poll logs `Unexpected error fetching ... data` /
