@@ -9,14 +9,15 @@ for an upstream PR.
 
 The owner's fork of `FaserF/ha-openwrt`, the HACS integration for OpenWrt routers.
 Remotes: `origin` = the fork, `upstream` = FaserF (PRs target it). The owner's production
-Home Assistant runs the upstream **HACS release** with the fork's `all-changes` build
-swapped over its files.
+Home Assistant runs the upstream **HACS release** with a fork build swapped over its files:
+normally `all-changes`, but since 2026-10-20 `deploy/firmware-fixes` (see Current state).
 
 ## Branches
 
-- `all-changes`: what prod runs. Always **the latest upstream release tag** + the owner's
-  unmerged fix branches (cherry-picked) + this file's commit. Never base it on `upstream/main`:
-  unreleased main crashed every router on HA 2026.9 on 2026-09-28.
+- `all-changes`: the combined deploy branch. Always **the latest upstream release tag** + the
+  owner's unmerged fix branches (cherry-picked) + this file's commit. Never base it on
+  `upstream/main`: unreleased main crashed every router on HA 2026.9 on 2026-09-28. Since
+  2026-10-20 prod runs `deploy/firmware-fixes` instead; see Current state.
 - `fix/*`: one per upstream PR candidate, cut from freshly fetched `upstream/main`.
 - `main` on the fork is stale (May 2026) and is never a base for anything.
 
@@ -55,12 +56,19 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
 ## Current state and open items
 
 - `all-changes`: v2.5.3 + this file only, so its integration code is identical to the
-  v2.5.3 release. v2.5.3 (2026-10-11) carries every fork fix: LuCI reauth
+  v2.5.3 release. v2.5.3 (2026-10-11) carries every earlier fork fix: LuCI reauth
   (FaserF/ha-openwrt#159), the gateway link plus the `config_entries` deprecation fix
-  (#160) and the nlbwmon registry fix (#164). Prod runs plain HACS v2.5.3 (installed
-  2026-10-11, files md5-identical to the tag; passed the real-HA setup check on 2026.10.0).
-  No file swap is needed until a new fix branch exists. The v2.5.2-based build is kept as the local
+  (#160) and the nlbwmon registry fix (#164). The v2.5.2-based build is kept as the local
   branch `all-changes-v2.5.2`.
+- Prod does **not** run `all-changes` (corrected 2026-10-24). Since its 2026-10-20 restart it
+  runs the HACS v2.5.3 release with the local branch `deploy/firmware-fixes` (`629a553`)
+  swapped over it, manifest `version` set to `2.5.3`. That branch is the v2.5.3 tag + 12
+  commits: ten firmware fixes (ASU detection and requests, image verification, detached
+  installs, version tracking, check timing), one backup-download fix and one test. As of
+  2026-10-24 none is in `upstream/main` and none has an upstream PR. `all-changes` carries
+  none of the twelve, so the Deploy swap, run as written, would remove them from prod; so
+  would a HACS update or redownload. Verified 2026-10-24: every prod file matches
+  `git archive deploy/firmware-fixes` except the manifest's version line.
 - Open upstream PR FaserF/ha-openwrt#195 (branch `fix/action-forces-slow-poll`, from
   `upstream/main` 2026-10-23): every router action reset the never-read `_last_full_poll`,
   so the refresh after a service-switch toggle did not re-read services (slow tier, 900 s).
