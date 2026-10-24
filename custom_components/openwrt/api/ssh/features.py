@@ -1,7 +1,6 @@
 # mypy: disable-error-code="attr-defined"
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import json
 import logging
@@ -13,13 +12,21 @@ from ..base import (
     AdBlockStatus,
     FirewallRedirect,
     FirewallRule,
+    FirmwareInstallError,
     NlbwmonTraffic,
     ServiceInfo,
     SimpleAdBlockStatus,
     SqmStatus,
+    build_sysupgrade_command,
+    check_sysupgrade_output,
     classify_service,
 )
-from .exceptions import SshError
+from .exceptions import SshError, SshTimeoutError
+
+# The download and checksum steps print nothing to stdout, and paramiko's
+# timeout is the longest wait for stdout, so it has to cover a whole image
+# download on a slow uplink.
+FIRMWARE_INSTALL_TIMEOUT = 900
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,27 +52,16 @@ class SshFeaturesMixin:
             output = await self._exec(cmd)
             if not output:
                 return []
+            # Names are used as-is: 'apk info' without -v prints bare names,
+            # and opkg's first field is the name. Many real names contain a
+            # dash followed by a digit (libnghttp2-14, libustream-mbedtls20201210),
+            # so stripping a "version" from them would corrupt the name.
             packages: list[str] = []
             for line in output.splitlines():
                 name = line.strip()
-                if not name:
-                    continue
-
-                # Strip version for apk (package-version-release)
-                # On OpenWrt/APK, 'apk info -q' sometimes includes the version suffix.
-                # Standard pkg names don't have digits immediately after a dash
-                # unless it's the version part.
-                if "-" in name and any(c.isdigit() for c in name):
-                    parts = name.split("-")
-                    # Package names like "sqm-scripts" are ok, but "sqm-scripts-1.0" should be "sqm-scripts"
-                    # We look for the first part that starts with a digit or the last two parts
-                    for i in range(1, len(parts)):
-                        if parts[i] and parts[i][0].isdigit():
-                            name = "-".join(parts[:i])
-                            break
-
-                packages.append(name)
-            return list(set(packages))
+                if name and name not in packages:
+                    packages.append(name)
+            return packages
         except Exception:
             return []
 
@@ -353,27 +349,37 @@ class SshFeaturesMixin:
             return False
 
     async def install_firmware(
-        self, url: str, keep_settings: bool = True, force: bool = False
+        self,
+        url: str,
+        keep_settings: bool = True,
+        force: bool = False,
+        sha256: str = "",
     ) -> None:
         """Install firmware from the given URL via SSH."""
-        # Use sysupgrade for installation
-        # Download to /tmp and then run sysupgrade
-        keep = "" if keep_settings else "-n"
-        force_flag = "-F " if force else ""
-        safe_url = shlex.quote(url)
-        cmd = (
-            f"if command -v uclient-fetch >/dev/null 2>&1; then "
-            f"  uclient-fetch --no-check-certificate -O /tmp/firmware.bin {safe_url}; "
-            f"elif command -v curl >/dev/null 2>&1; then "
-            f"  curl -k -L -o /tmp/firmware.bin {safe_url}; "
-            f"else "
-            f"  wget --no-check-certificate -O /tmp/firmware.bin {safe_url}; "
-            f"fi && sysupgrade {force_flag}{keep} /tmp/firmware.bin"
-        )
+        cmd = build_sysupgrade_command(url, keep_settings, force, sha256)
+        # The command runs once, without _exec's reconnect-and-retry: a second
+        # run would start another download and flash. So reconnect here, where
+        # a failure means nothing was started.
+        if self._client is None:
+            await self.connect()
         try:
             _LOGGER.info("Initiating firmware installation via SSH from: %s", url)
-            # We expect this to eventually fail or disconnect as the router reboots
-            await self._exec(cmd)
+            # We expect this to eventually fail or disconnect as the router reboots.
+            output = await self._exec(
+                cmd, retry=False, timeout=FIRMWARE_INSTALL_TIMEOUT
+            )
+            check_sysupgrade_output(output)
+        except FirmwareInstallError:
+            raise
+        except SshTimeoutError as err:
+            # Silence is not a reboot: sysupgrade closes the session when it
+            # takes over. The download may still be running or have stalled.
+            msg = (
+                f"No response from the router for {FIRMWARE_INSTALL_TIMEOUT}s while "
+                "downloading the firmware; it is unknown whether sysupgrade "
+                "started. Check the router before retrying."
+            )
+            raise FirmwareInstallError(msg) from err
         except Exception as err:
             # If it's a connection error, it's likely the router rebooting
             err_msg = str(err).lower()
@@ -384,7 +390,6 @@ class SshFeaturesMixin:
                     "broken pipe",
                     "closed",
                     "eof",
-                    "timeout",
                     "cannot connect",
                     "could not connect",
                     "connection lost",
@@ -403,22 +408,15 @@ class SshFeaturesMixin:
             raise SshError(msg) from err
 
     async def download_file(self, remote_path: str, local_path: str) -> bool:
-        """Download a file from the router via SSH using cat (fallback for SCP)."""
-        try:
-            # Using cat and reading back the result. For larger files this might be slow,
-            # but for backups (~some KB) it should be fine.
-            safe_path = shlex.quote(remote_path)
-            content = await self._exec(f"cat {safe_path}")
-            if content:
-                # We need to be careful with binary data over SSH exec
-                # If the file is a .tar.gz, it's binary.
-                # Let's try base64 to be safe if it's binary.
-                b64_content = await self._exec(f"base64 {safe_path}")
-                import base64
+        """Download a file from the router via SSH.
 
-                data = base64.b64decode(b64_content)
-                await asyncio.to_thread(self._write_bytes, local_path, data)
-                return True
+        The file is encoded on the router (busybox often has no base64
+        applet) and checked against the router's byte count.
+        """
+        try:
+            return await self._download_file_via_command(
+                remote_path, local_path, self._exec
+            )
         except Exception as err:
             _LOGGER.exception("Failed to download file via SSH: %s", err)
         return False

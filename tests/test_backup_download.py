@@ -179,3 +179,147 @@ async def test_ubus_download_file_base64() -> None:
             "file", "read", {"path": "/tmp/backup.tar.gz", "base64": True}
         )
         mock_file_handle.write.assert_called_once_with(raw_content)
+
+
+# --- Binary-safe download over LuCI RPC and SSH ---
+
+GZIP_BYTES = b"\x1f\x8b\x08\x00" + bytes(range(256)) + b"\x00\xff" * 64
+
+
+def _encoded_output(data: bytes, size: int | None = None, hex_mode: bool = False):
+    import base64
+
+    size = len(data) if size is None else size
+    if hex_mode:
+        body = "__HA_DL_HEX__\n" + data.hex()
+    else:
+        encoded = base64.b64encode(data).decode()
+        # Wrapped like `base64` output, to prove whitespace is tolerated
+        body = "\n".join(encoded[i : i + 76] for i in range(0, len(encoded), 76))
+    return f"__HA_DL_SIZE__   {size}\n__HA_DL_BEGIN__\n{body}\n__HA_DL_END__\n"
+
+
+def _luci_client():
+    from custom_components.openwrt.api.luci_rpc import LuciRpcClient
+
+    return LuciRpcClient(
+        MagicMock(), MagicMock(), host="192.0.2.1", username="root", password="pwd"
+    )
+
+
+@pytest.mark.asyncio
+async def test_luci_download_does_not_trust_raw_file_read() -> None:
+    """Raw gzip text (what luci-mod-rpc file.read returns) is never saved."""
+    client = _luci_client()
+    raw = GZIP_BYTES.decode("latin-1")
+
+    with (
+        patch.object(client, "_rpc_call", new_callable=AsyncMock) as mock_rpc,
+        patch.object(client, "execute_command", new_callable=AsyncMock) as mock_exec,
+        patch.object(client, "_write_bytes") as mock_write,
+    ):
+        mock_rpc.return_value = raw
+        mock_exec.return_value = raw
+        assert await client.download_file("/tmp/b.tar.gz", "/tmp/l.tar.gz") is False
+        mock_write.assert_not_called()
+        assert not any(c.args[:2] == ("file", "read") for c in mock_rpc.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_luci_download_round_trips_binary_base64_and_hex() -> None:
+    """Router-side encoding (base64 or hex) round-trips arbitrary bytes."""
+    client = _luci_client()
+    for hex_mode in (False, True):
+        with (
+            patch.object(
+                client,
+                "execute_command",
+                new_callable=AsyncMock,
+                return_value=_encoded_output(GZIP_BYTES, hex_mode=hex_mode),
+            ) as mock_exec,
+            patch.object(client, "_write_bytes") as mock_write,
+        ):
+            assert await client.download_file("/tmp/b.tar.gz", "/tmp/l.tar.gz")
+            mock_write.assert_called_once_with("/tmp/l.tar.gz", GZIP_BYTES)
+            cmd = mock_exec.call_args[0][0]
+            assert "b64enc(fs.readfile(" in cmd
+            assert "wc -c" in cmd
+
+
+@pytest.mark.asyncio
+async def test_download_size_mismatch_is_not_saved() -> None:
+    """A decoded size that differs from the router's byte count fails."""
+    client = _luci_client()
+    with (
+        patch.object(
+            client,
+            "execute_command",
+            new_callable=AsyncMock,
+            return_value=_encoded_output(GZIP_BYTES[:-10], size=len(GZIP_BYTES)),
+        ),
+        patch.object(client, "_write_bytes") as mock_write,
+    ):
+        assert await client.download_file("/tmp/b.tar.gz", "/tmp/l.tar.gz") is False
+        mock_write.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_download_fails_clearly_without_encoder_or_file() -> None:
+    """No encoder on the router, or no file, fails without writing anything."""
+    client = _luci_client()
+    for output in (
+        "__HA_DL_SIZE__10\n__HA_DL_BEGIN__\n__HA_DL_HEX__\n__HA_DL_NOENC__\n\n__HA_DL_END__\n",
+        "__HA_DL_NOFILE__\n",
+        "",
+    ):
+        with (
+            patch.object(
+                client, "execute_command", new_callable=AsyncMock, return_value=output
+            ),
+            patch.object(client, "_write_bytes") as mock_write,
+        ):
+            assert await client.download_file("/tmp/b", "/tmp/l") is False
+            mock_write.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ssh_download_uses_router_side_encoding() -> None:
+    """SSH no longer relies on a base64 binary; it uses the verified helper."""
+    from custom_components.openwrt.api.ssh import SshClient
+
+    client = SshClient(
+        MagicMock(), MagicMock(), host="192.0.2.1", username="root", password="pwd"
+    )
+    with (
+        patch.object(
+            client,
+            "_exec",
+            new_callable=AsyncMock,
+            return_value=_encoded_output(GZIP_BYTES),
+        ) as mock_exec,
+        patch.object(client, "_write_bytes") as mock_write,
+    ):
+        assert await client.download_file("/tmp/b.tar.gz", "/tmp/l.tar.gz")
+        mock_write.assert_called_once_with("/tmp/l.tar.gz", GZIP_BYTES)
+        assert mock_exec.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_ubus_download_rejects_non_base64() -> None:
+    """ubus file.read data that is not valid base64 is not saved."""
+    from custom_components.openwrt.api.ubus import UbusClient
+
+    client = UbusClient(
+        MagicMock(), MagicMock(), host="192.0.2.1", username="root", password="pwd"
+    )
+    with (
+        patch.object(
+            client,
+            "_call",
+            new_callable=AsyncMock,
+            return_value={"data": GZIP_BYTES.decode("latin-1")},
+        ),
+        patch.object(client, "_write_bytes") as mock_write,
+    ):
+        assert await client.download_file("/tmp/b", "/tmp/l") is False
+        mock_write.assert_not_called()
