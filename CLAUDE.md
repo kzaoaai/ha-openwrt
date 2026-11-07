@@ -57,27 +57,48 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
 
 ## Current state and open items
 
+- **Prod runs plain upstream v2.5.4, not this branch** (hash-checked 2026-11-07: all 94 files
+  match the v2.5.4 tag, the manifest only by `2.5.4` vs `2.5.4-dev0`). The HACS update was
+  written 2026-11-05 00:40 and loaded at that day's Core 2026.11 start; nothing records who
+  ran it. It dropped the twelve fork commits below, so the HA update button on a router now
+  takes upstream's install path (stock image, `sysupgrade -F` for custom builds). v2.5.5
+  (2026-11-07) is pending and still has both problems. `all-changes` is NOT a deploy
+  candidate until it is rebuilt on the current release.
+- The twelve are upstream PRs since 2026-11-07, rebased onto `upstream/main` @ `50ed8b1`
+  (after upstream's API module split; every moved function is identical to the tested
+  version): FaserF/ha-openwrt#215 `fix/firmware-asu` (ASU detection, package list, client
+  id, plus a pure-move refactor into `coordinator/firmware_asu.py` and
+  `update_release_notes.py` to stay under upstream's 600-line limit), #216
+  `fix/firmware-install-safety` (stacked on #215: sha256 checks, image selection, detached
+  installs; helpers in a new `api/firmware_install.py`), #217
+  `fix/firmware-entity-freshness`, #218 `fix/backup-download` (fixes upstream issue #212;
+  replaces #212's three-step LuCI download). The old local `pr/*`, `pr-main/*` and
+  per-fix `fix/*` branches are superseded by these four. Whichever of #215-#218 merges
+  second needs a rebase: they append to the same test files and insert next to each other
+  in `api/client/helpers.py`.
+- Hassfest fails on every PR against `upstream/main` since 2026-11-07: upstream's own
+  `manifest.json` puts `quality_scale` after `version` ("keys are not sorted"). Not ours.
+- Corrected 2026-11-07: luci-mod-rpc has no `file` (or `ubus`) namespace, only auth, uci,
+  fs, sys, ipkg and ip (read on routers, 26.288). The old backup commit's claim that its
+  `file.read` "returns the raw content" was wrong; the call 404s.
 - `all-changes`: v2.5.3 + `deploy/firmware-fixes` (merged 2026-10-24) + this file. The
   merge added 12 commits: ten firmware fixes (ASU detection and requests, image
   verification, detached installs, version tracking, check timing), one backup-download fix
-  and one test. As of 2026-10-24 none is in `upstream/main` and none has an upstream PR.
-  v2.5.3 (2026-10-11) carries every earlier fork fix: LuCI reauth (FaserF/ha-openwrt#159),
-  the gateway link plus the `config_entries` deprecation fix (#160) and the nlbwmon registry
-  fix (#164). The v2.5.2-based build is kept as the local branch `all-changes-v2.5.2`.
-- Prod runs this branch's integration code: HACS v2.5.3 with the same twelve commits swapped
-  over it from `deploy/firmware-fixes` (`629a553`), live since its 2026-10-20 restart, with
-  the manifest `version` set to `2.5.3`. Verified 2026-10-24: every prod file matches
-  `git archive all-changes custom_components/openwrt` except the manifest's version line. A
-  HACS update or redownload of openwrt replaces the twelve with the plain release.
+  and one test. v2.5.3 (2026-10-11) carries every earlier fork fix: LuCI reauth
+  (FaserF/ha-openwrt#159), the gateway link plus the `config_entries` deprecation fix (#160)
+  and the nlbwmon registry fix (#164). The v2.5.2-based build is kept as the local branch
+  `all-changes-v2.5.2`.
+- History: prod ran this branch's integration code (HACS v2.5.3 with the twelve swapped over
+  it from `deploy/firmware-fixes` @ `629a553`) from the 2026-10-20 restart until the
+  2026-11-05 HACS update.
 - FaserF/ha-openwrt#195 (branch `fix/action-forces-slow-poll`, from `upstream/main`
-  2026-10-23) merged upstream 2026-10-24 (`7889f9c`); no release carries it yet (latest
-  v2.5.3). Every router action reset the never-read `_last_full_poll`, so the refresh after
-  a service-switch toggle did not re-read services (slow tier, 900 s). Actions now call
-  `_invalidate_slow_poll()`, with a generation counter so one landing mid-poll is not
-  overwritten (race found by CodeRabbit). FaserF's review bot asked for file splits and
-  logging in pre-existing code; offered as follow-up PRs. Not in prod: wait for the release
-  rather than a file swap. Until then a toggle made in LuCI or over SSH shows in HA up to
-  15 min late, and a toggle from HA shows its optimistic state until the next slow poll.
+  2026-10-23) merged upstream 2026-10-24 (`7889f9c`), released in v2.5.4 and live on prod
+  since 2026-11-05. Every router action reset the never-read `_last_full_poll`, so the
+  refresh after a service-switch toggle did not re-read services (slow tier, 900 s).
+  Actions now call `_invalidate_slow_poll()`, with a generation counter so one landing
+  mid-poll is not overwritten (race found by CodeRabbit). FaserF's review bot asked for
+  file splits and logging in pre-existing code; upstream did the file split itself on
+  2026-11-07 (`60a36da`, a 600-line limit).
 - Upstream's red "Lint & Test" since HA 2026.10.0 was its `probatio` typing in
   `config_flow.py`, `repairs.py`, `services.py`; upstream `88bc38a` addresses mypy errors.
 - A shutdown that lands mid-poll logs `Unexpected error fetching ... data` /
