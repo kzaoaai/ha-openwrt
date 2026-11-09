@@ -62,8 +62,11 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
   written 2026-11-05 00:40 and loaded at that day's Core 2026.11 start; nothing records who
   ran it. It dropped the twelve fork commits below, so the HA update button on a router now
   takes upstream's install path (stock image, `sysupgrade -F` for custom builds). v2.5.5
-  (2026-11-07) is pending and still has both problems. `all-changes` is NOT a deploy
-  candidate until it is rebuilt on the current release.
+  (2026-11-07) is pending and still has both problems. It sets up cleanly on real HA
+  2026.11.0 (same result as v2.5.4), but the owner is holding it until upstream issue #219
+  (Wi-Fi clients that disconnect turn "wired" and stay home, reported on v2.5.5) is
+  understood. `all-changes` is NOT a deploy candidate until it is rebuilt on the current
+  release.
 - The twelve are upstream PRs since 2026-11-07, rebased onto `upstream/main` @ `50ed8b1`
   (after upstream's API module split; every moved function is identical to the tested
   version): FaserF/ha-openwrt#215 `fix/firmware-asu` (ASU detection, package list, client
@@ -76,8 +79,10 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
   per-fix `fix/*` branches are superseded by these four. Whichever of #215-#218 merges
   second needs a rebase: they append to the same test files and insert next to each other
   in `api/client/helpers.py`.
-- Hassfest fails on every PR against `upstream/main` since 2026-11-07: upstream's own
-  `manifest.json` puts `quality_scale` after `version` ("keys are not sorted"). Not ours.
+- Hassfest fails on every PR against `upstream/main`: upstream's own `manifest.json` puts
+  `quality_scale` after `version` ("keys are not sorted"). Each of #215-#218 carries the same
+  key-order commit, explained in every PR description. CodeRabbit runs on its free tier (two
+  reviews per hour); after hitting the limit it reviews again only on `@coderabbitai review`.
 - Corrected 2026-11-07: luci-mod-rpc has no `file` (or `ubus`) namespace, only auth, uci,
   fs, sys, ipkg and ip (read on routers, 26.288). The old backup commit's claim that its
   `file.read` "returns the raw content" was wrong; the call 404s.
@@ -107,4 +112,6 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
 - Inferred, untested: the TX-power cleanup in `number.py` removes every TX-power slider if a
   router reports no wireless interfaces at setup.
 - The real-HA harness lives only in a scratchpad and has to be recreated each time;
-  committing it to the fork would make the pre-deploy check cheap.
+  committing it to the fork would make the pre-deploy check cheap. From HA 2026.11 it runs on
+  HA's own in-tree `pytest_homeassistant` package, not `pytest-homeassistant-custom-component`
+  (recipe: memory note `verify-on-real-ha-before-prod`).
