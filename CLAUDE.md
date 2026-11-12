@@ -67,18 +67,16 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
   (Wi-Fi clients that disconnect turn "wired" and stay home, reported on v2.5.5) is
   understood. `all-changes` is NOT a deploy candidate until it is rebuilt on the current
   release.
-- The twelve are upstream PRs since 2026-11-07, rebased onto `upstream/main` @ `50ed8b1`
-  (after upstream's API module split; every moved function is identical to the tested
-  version): FaserF/ha-openwrt#215 `fix/firmware-asu` (ASU detection, package list, client
-  id, plus a pure-move refactor into `coordinator/firmware_asu.py` and
-  `update_release_notes.py` to stay under upstream's 600-line limit), #216
-  `fix/firmware-install-safety` (stacked on #215: sha256 checks, image selection, detached
-  installs; helpers in a new `api/firmware_install.py`), #217
-  `fix/firmware-entity-freshness`, #218 `fix/backup-download` (fixes upstream issue #212;
-  replaces #212's three-step LuCI download). The old local `pr/*`, `pr-main/*` and
-  per-fix `fix/*` branches are superseded by these four. Whichever of #215-#218 merges
-  second needs a rebase: they append to the same test files and insert next to each other
-  in `api/client/helpers.py`.
+- The twelve are upstream: FaserF/ha-openwrt#215 (ASU detection and package list), #216
+  (image verification, detached installs), #217 (firmware entity freshness) and #218 (backup
+  download, fixes upstream issue #212) merged 2026-11-12, after v2.5.5, so no release has them
+  yet. Merging #218 dropped #215's `get_user_installed_packages()` from
+  `api/client/helpers.py` (upstream's resolution took #218's file), which breaks every ASU
+  install and turned upstream CI red. FaserF/ha-openwrt#226
+  (`fix/restore-user-installed-packages`) restores it unchanged. Once a release carries
+  #215-#218 and #226, rebuild `all-changes` as that release tag + this file's commit (the
+  owner agreed 2026-11-12). The old local `pr/*`, `pr-main/*` and per-fix `fix/*` branches are
+  superseded.
 - Hassfest fails on every PR against `upstream/main`: upstream's own `manifest.json` puts
   `quality_scale` after `version` ("keys are not sorted"). Each of #215-#218 carries the same
   key-order commit, explained in every PR description. CodeRabbit runs on its free tier (two
