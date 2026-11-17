@@ -73,7 +73,8 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
   yet. Merging #218 dropped #215's `get_user_installed_packages()` from
   `api/client/helpers.py` (upstream's resolution took #218's file), which breaks every ASU
   install and turned upstream CI red. FaserF/ha-openwrt#226
-  (`fix/restore-user-installed-packages`) restores it unchanged. Once a release carries
+  (`fix/restore-user-installed-packages`) restores it unchanged; merged 2026-11-17 as a
+  local branch merge (`c154e42`), so GitHub shows #226 as closed, not merged. Once a release carries
   #215-#218 and #226, rebuild `all-changes` as that release tag + this file's commit (the
   owner agreed 2026-11-12). The old local `pr/*`, `pr-main/*` and per-fix `fix/*` branches are
   superseded.
