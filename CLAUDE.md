@@ -20,9 +20,8 @@ HACS release.
   HA 2026.9 on 2026-09-28.
 - `all-changes-v2.5.3` (also on `origin`): the previous build, v2.5.3 + the twelve firmware
   and backup commits. `all-changes-v2.5.2` (local): the one before. Rollback reference only.
-- `fix/*`: one per upstream PR candidate, cut from freshly fetched `upstream/main`. Every
-  existing one is merged upstream; `deploy/firmware-fixes`, `pr/*` and `pr-main/*` are
-  superseded. None is a deploy base.
+- `fix/*`: one per upstream PR candidate, cut from freshly fetched `upstream/main`, deleted
+  once released. None exists today (all were merged and deleted 2026-11-17).
 - `main` on the fork is stale (May 2026) and is never a base for anything.
 
 ## Test
