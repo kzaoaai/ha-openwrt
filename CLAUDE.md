@@ -68,8 +68,8 @@ restart it from a session. Host access, the exact steps and the rollback copy: m
   merged), plus the earlier #159, #160, #164 and #195. It also fixes upstream issue #219
   (disconnected Wi-Fi clients turning "wired" and staying home), which was why v2.5.5 was
   held.
-- Prod was last hash-checked 2026-11-07 on plain upstream v2.5.4. v2.5.6 is the next deploy
-  candidate; per Test above, set it up on real HA at prod's version first.
+- Prod runs plain upstream v2.5.6 from HACS (installed and restarted 2026-11-17; all five
+  router entries loaded, no openwrt errors in the log). There is no fork code to swap in.
 - Upstream's PR checks: Hassfest wants manifest keys sorted (fixed on main by the
   `quality_scale` move in v2.5.6). CodeRabbit runs on its free tier (two reviews per hour);
   after the limit it reviews again only on `@coderabbitai review`. FaserF's bot sometimes
